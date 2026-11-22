@@ -34,7 +34,7 @@ jobs:
           cm = cm.replace("src/mod/MyMod.cpp", "src/mod/MyMod.cpp\n    src/lyrics/Engine.cpp")
           open("CMakeLists.txt", "w").write(cm)
 
-          # 2. Patch src/mod/MyMod.cpp pada fungsi enable() dan disable()
+          # 2. Patch src/mod/MyMod.cpp
           mm = open("src/mod/MyMod.cpp").read()
           mm = "#include \"../lyrics/Engine.hpp\"\nnamespace { kl::Engine gLyrics; }\n" + mm
           old_enable = """    self.getLogger().info("Config message: {}", mConfig.message);
@@ -50,6 +50,44 @@ jobs:
               return true;"""
           mm = mm.replace(old_disable, new_disable)
           open("src/mod/MyMod.cpp", "w").write(mm)
+
+          # 3. Ganti #include <pl/Platform.hpp> dengan POSIX socket 127.0.0.1 di Engine.cpp
+          eng = open("src/lyrics/Engine.cpp").read()
+          socket_helper = """#include <arpa/inet.h>
+          #include <netinet/in.h>
+          #include <sys/socket.h>
+          #include <sys/time.h>
+          #include <unistd.h>
+
+          namespace {
+          struct LocalHttpResp { int status = 0; std::string body; bool ok() const { return status >= 200 && status < 300; } };
+          LocalHttpResp localHttpGet(int port, const std::string& path, int timeoutMs) {
+              LocalHttpResp res;
+              int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+              if (fd < 0) return res;
+              timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+              ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+              ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+              sockaddr_in addr{}; addr.sin_family = AF_INET; addr.sin_port = htons(static_cast<uint16_t>(port));
+              ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+              if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { ::close(fd); return res; }
+              std::string req = "GET " + path + " HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n";
+              ::send(fd, req.data(), req.size(), 0);
+              std::string raw; char buf[1024]; ssize_t n;
+              while ((n = ::recv(fd, buf, sizeof(buf), 0)) > 0) raw.append(buf, n);
+              ::close(fd);
+              auto hdrEnd = raw.find("\\r\\n\\r\\n");
+              if (hdrEnd == std::string::npos) return res;
+              if (raw.find("200 OK") != std::string::npos && raw.find("200 OK") < hdrEnd) res.status = 200;
+              res.body = raw.substr(hdrEnd + 4);
+              return res;
+          }
+          } // namespace
+          """
+          eng = eng.replace("#include <pl/Platform.hpp>", socket_helper)
+          eng = eng.replace("pl::platform::httpGet(\"http://127.0.0.1:\" + std::to_string(port) + \"/lyrics\", 2500)", "localHttpGet(port, \"/lyrics\", 2500)")
+          eng = eng.replace("pl::platform::httpGet(\"http://127.0.0.1:\" + std::to_string(port) + \"/now\", 1200)", "localHttpGet(port, \"/now\", 1200)")
+          open("src/lyrics/Engine.cpp", "w").write(eng)
           '
 
       - name: Install Android build tools
