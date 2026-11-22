@@ -22,30 +22,40 @@ jobs:
           unzip -q kangetsu.zip
           mkdir -p src/lyrics
           cp -r kangetsu/mod/src/lyrics/* src/lyrics/
-          
-          # Sesuaikan konfigurasi mod & tambahkan Engine.cpp di CMakeLists.txt
-          sed -i 's/set(MOD_ID .*/set(MOD_ID "kangetsu_lyrics_port")/' CMakeLists.txt
-          sed -i 's/set(MOD_NAME .*/set(MOD_NAME "Kangetsu Lyrics (port)")/' CMakeLists.txt
-          sed -i 's/set(MOD_LIBRARY_NAME .*/set(MOD_LIBRARY_NAME "kangetsu_lyrics_port")/' CMakeLists.txt
-          sed -i 's/set(MOD_MINECRAFT_VERSIONS .*/set(MOD_MINECRAFT_VERSIONS "[]")/' CMakeLists.txt
-          sed -i 's|src/mod/MyMod.cpp|src/mod/MyMod.cpp src/lyrics/Engine.cpp|' CMakeLists.txt
+          cp kangetsu/assets/lyrics.ttf .
 
-          # Suntikkan pemanggilan gLyrics ke dalam src/mod/MyMod.cpp
           python3 -c '
-          p = "src/mod/MyMod.cpp"
-          s = open(p).read()
-          s = "#include \"../lyrics/Engine.hpp\"\nnamespace { kl::Engine gLyrics; }\n" + s
-          s = s.replace("return true;", "return gLyrics.start(getSelf().getId(), getSelf().getResourceDir().string(), [this](const std::string& m) { getSelf().getLogger().info(m); });", 1)
-          s = s.replace("return true;", "gLyrics.stop();\n    return true;", 1)
-          open(p, "w").write(s)
-          '
+          # 1. Patch CMakeLists.txt
+          cm = open("CMakeLists.txt").read()
+          cm = cm.replace("set(MOD_ID \"clange_me\"", "set(MOD_ID \"kangetsu_lyrics_port\"")
+          cm = cm.replace("set(MOD_NAME \"Clange Me Mod\"", "set(MOD_NAME \"Kangetsu Lyrics (port)\"")
+          cm = cm.replace("set(MOD_LIBRARY_NAME \"clange_me\"", "set(MOD_LIBRARY_NAME \"kangetsu_lyrics_port\"")
+          cm = cm.replace("set(MOD_MINECRAFT_VERSIONS \"[\\\"1.26.*\\\"]\"", "set(MOD_MINECRAFT_VERSIONS \"[]\"")
+          cm = cm.replace("src/mod/MyMod.cpp", "src/mod/MyMod.cpp\n    src/lyrics/Engine.cpp")
+          open("CMakeLists.txt", "w").write(cm)
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+          # 2. Patch src/mod/MyMod.cpp pada fungsi enable() dan disable()
+          mm = open("src/mod/MyMod.cpp").read()
+          mm = "#include \"../lyrics/Engine.hpp\"\nnamespace { kl::Engine gLyrics; }\n" + mm
+          old_enable = """    self.getLogger().info("Config message: {}", mConfig.message);
+              return true;"""
+          new_enable = """    self.getLogger().info("Config message: {}", mConfig.message);
+              return gLyrics.start(getSelf().getId(), getSelf().getResourceDir().string(),
+                                   [this](const std::string& m) { getSelf().getLogger().info(m); });"""
+          mm = mm.replace(old_enable, new_enable)
+
+          old_disable = """    // Undo enable-time state here.
+              return true;"""
+          new_disable = """    gLyrics.stop();
+              return true;"""
+          mm = mm.replace(old_disable, new_disable)
+          open("src/mod/MyMod.cpp", "w").write(mm)
+          '
 
       - name: Install Android build tools
         run: |
-          sdkmanager "platforms;android-28" "ndk;28.2.13676358"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-28" "ndk;28.2.13676358"
           sudo apt-get update
           sudo apt-get install -y ninja-build
 
