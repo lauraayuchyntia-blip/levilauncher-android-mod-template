@@ -24,31 +24,30 @@ jobs:
           cp -r kangetsu/mod/src/lyrics/* src/lyrics/
           cp kangetsu/assets/lyrics.ttf .
 
-          python3 -c '
+          python3 - << 'EOF'
+          import re
+
           # 1. Patch CMakeLists.txt
           cm = open("CMakeLists.txt").read()
-          cm = cm.replace("set(MOD_ID \"clange_me\"", "set(MOD_ID \"kangetsu_lyrics_port\"")
-          cm = cm.replace("set(MOD_NAME \"Clange Me Mod\"", "set(MOD_NAME \"Kangetsu Lyrics (port)\"")
-          cm = cm.replace("set(MOD_LIBRARY_NAME \"clange_me\"", "set(MOD_LIBRARY_NAME \"kangetsu_lyrics_port\"")
-          cm = cm.replace("set(MOD_MINECRAFT_VERSIONS \"[\\\"1.26.*\\\"]\"", "set(MOD_MINECRAFT_VERSIONS \"[]\"")
+          cm = cm.replace('set(MOD_ID "clange_me"', 'set(MOD_ID "kangetsu_lyrics_port"')
+          cm = cm.replace('set(MOD_NAME "Clange Me Mod"', 'set(MOD_NAME "Kangetsu Lyrics (port)"')
+          cm = cm.replace('set(MOD_LIBRARY_NAME "clange_me"', 'set(MOD_LIBRARY_NAME "kangetsu_lyrics_port"')
+          cm = cm.replace('set(MOD_MINECRAFT_VERSIONS "[\\"1.26.*\\"]"', 'set(MOD_MINECRAFT_VERSIONS "[]"')
           cm = cm.replace("src/mod/MyMod.cpp", "src/mod/MyMod.cpp\n    src/lyrics/Engine.cpp")
           open("CMakeLists.txt", "w").write(cm)
 
-          # 2. Patch src/mod/MyMod.cpp
+          # 2. Patch src/mod/MyMod.cpp (indentasi 4 spasi sesuai file asli)
           mm = open("src/mod/MyMod.cpp").read()
-          mm = "#include \"../lyrics/Engine.hpp\"\nnamespace { kl::Engine gLyrics; }\n" + mm
-          old_enable = """    self.getLogger().info("Config message: {}", mConfig.message);
-              return true;"""
-          new_enable = """    self.getLogger().info("Config message: {}", mConfig.message);
-              return gLyrics.start(getSelf().getId(), getSelf().getResourceDir().string(),
-                                   [this](const std::string& m) { getSelf().getLogger().info(m); });"""
-          mm = mm.replace(old_enable, new_enable)
+          mm = '#include "../lyrics/Engine.hpp"\nnamespace { kl::Engine gLyrics; }\n' + mm
+          old_enable = '    self.getLogger().info("Config message: {}", mConfig.message);\n    return true;'
+          new_enable = '    self.getLogger().info("Config message: {}", mConfig.message);\n    return gLyrics.start(getSelf().getId(), getSelf().getResourceDir().string(), [this](const std::string& m) { getSelf().getLogger().info(m); });'
+          assert old_enable in mm, "old_enable tidak ditemukan!"
+          mm = mm.replace(old_enable, new_enable, 1)
 
-          old_disable = """    // Undo enable-time state here.
-              return true;"""
-          new_disable = """    gLyrics.stop();
-              return true;"""
-          mm = mm.replace(old_disable, new_disable)
+          old_disable = '    // Undo enable-time state here.\n    return true;'
+          new_disable = '    gLyrics.stop();\n    return true;'
+          assert old_disable in mm, "old_disable tidak ditemukan!"
+          mm = mm.replace(old_disable, new_disable, 1)
           open("src/mod/MyMod.cpp", "w").write(mm)
 
           # 3. Ganti #include <pl/Platform.hpp> dengan POSIX socket 127.0.0.1 di Engine.cpp
@@ -85,10 +84,13 @@ jobs:
           } // namespace
           """
           eng = eng.replace("#include <pl/Platform.hpp>", socket_helper)
-          eng = eng.replace("pl::platform::httpGet(\"http://127.0.0.1:\" + std::to_string(port) + \"/lyrics\", 2500)", "localHttpGet(port, \"/lyrics\", 2500)")
-          eng = eng.replace("pl::platform::httpGet(\"http://127.0.0.1:\" + std::to_string(port) + \"/now\", 1200)", "localHttpGet(port, \"/now\", 1200)")
+          eng = eng.replace('pl::platform::httpGet("http://127.0.0.1:" + std::to_string(port) + "/lyrics", 2500)', 'localHttpGet(port, "/lyrics", 2500)')
+          eng = eng.replace('pl::platform::httpGet("http://127.0.0.1:" + std::to_string(port) + "/now", 1200)', 'localHttpGet(port, "/now", 1200)')
+
+          # 4. Hapus baris .config("port",...) yang memakai ConfigType::Text
+          eng = re.sub(r'[ \t]*\.config\("port"[^\n]*\n', '', eng)
           open("src/lyrics/Engine.cpp", "w").write(eng)
-          '
+          EOF
 
       - name: Install Android build tools
         run: |
