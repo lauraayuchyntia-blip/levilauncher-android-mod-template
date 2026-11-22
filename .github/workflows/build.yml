@@ -17,6 +17,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply Kangetsu Lyrics patch from kangetsu.zip
+        run: |
+          unzip -q kangetsu.zip
+          mkdir -p src/lyrics
+          cp -r kangetsu/mod/src/lyrics/* src/lyrics/
+          
+          # Sesuaikan konfigurasi mod & tambahkan Engine.cpp di CMakeLists.txt
+          sed -i 's/set(MOD_ID .*/set(MOD_ID "kangetsu_lyrics_port")/' CMakeLists.txt
+          sed -i 's/set(MOD_NAME .*/set(MOD_NAME "Kangetsu Lyrics (port)")/' CMakeLists.txt
+          sed -i 's/set(MOD_LIBRARY_NAME .*/set(MOD_LIBRARY_NAME "kangetsu_lyrics_port")/' CMakeLists.txt
+          sed -i 's/set(MOD_MINECRAFT_VERSIONS .*/set(MOD_MINECRAFT_VERSIONS "[]")/' CMakeLists.txt
+          sed -i 's|src/mod/MyMod.cpp|src/mod/MyMod.cpp src/lyrics/Engine.cpp|' CMakeLists.txt
+
+          # Suntikkan pemanggilan gLyrics ke dalam src/mod/MyMod.cpp
+          python3 -c '
+          p = "src/mod/MyMod.cpp"
+          s = open(p).read()
+          s = "#include \"../lyrics/Engine.hpp\"\nnamespace { kl::Engine gLyrics; }\n" + s
+          s = s.replace("return true;", "return gLyrics.start(getSelf().getId(), getSelf().getResourceDir().string(), [this](const std::string& m) { getSelf().getLogger().info(m); });", 1)
+          s = s.replace("return true;", "gLyrics.stop();\n    return true;", 1)
+          open(p, "w").write(s)
+          '
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -33,7 +56,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: levilauncher-android-mod-template
+          name: kangetsu-lyrics-levipack
           path: build-*/*.levipack
 
       - name: Publish release assets
